@@ -5,10 +5,13 @@ import numpy as np
 import torch
 from numpy import ndarray
 from torch import Tensor
+from torchvision import transforms
+from PIL import Image
 
 __all__ = [
     "image_to_tensor", "tensor_to_image",
-    "preprocess_one_image"
+    "preprocess_one_image_cv", "preprocess_one_image_pil",
+    "cam", "denorm", "tensor2numpy", "RGB2BGR"
 ]
 
 
@@ -59,7 +62,7 @@ def tensor_to_image(tensor: Tensor, range_norm: bool, half: bool) -> Any:
     return image
 
 
-def preprocess_one_image(image_path: str, range_norm: bool, half: bool, device: torch.device) -> Tensor:
+def preprocess_one_image_cv(image_path: str, range_norm: bool, half: bool, device: str) -> Tensor:
     # read an image using OpenCV
     image = cv2.imread(image_path).astype(np.float32) / 255.0
 
@@ -73,3 +76,41 @@ def preprocess_one_image(image_path: str, range_norm: bool, half: bool, device: 
     tensor = tensor.to(device, non_blocking=True)
 
     return tensor
+
+
+def preprocess_one_image_pil(image_path: str, img_size: int, device: str) -> Tensor:
+    with open(image_path, 'rb') as f:
+        image = Image.open(f)
+        image = image.convert('RGB')
+
+    test_transform = transforms.Compose([
+        transforms.Resize((img_size, img_size)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+    ])
+
+    tensor = test_transform(image).unsqueeze_(0)
+    tensor.to(device, non_blocking=True)
+
+    return tensor
+
+
+def cam(x, size=256):
+    x = x - np.min(x)
+    cam_img = x / np.max(x)
+    cam_img = np.uint8(255 * cam_img)
+    cam_img = cv2.resize(cam_img, (size, size))
+    cam_img = cv2.applyColorMap(cam_img, cv2.COLORMAP_JET)
+    return cam_img / 255.0
+
+
+def denorm(x):
+    return x * 0.5 + 0.5
+
+
+def tensor2numpy(x):
+    return x.detach().cpu().numpy().transpose(1, 2, 0)
+
+
+def RGB2BGR(x):
+    return cv2.cvtColor(x, cv2.COLOR_RGB2BGR)

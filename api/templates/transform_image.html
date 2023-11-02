@@ -3,6 +3,10 @@
 {% block content %}
 <h1>Upload new File</h1>
 <form method=post enctype=multipart/form-data>
+    <select name="model_select" id="models">
+        <option value="CycleGAN">CycleGAN apple2orange</option>
+        <option value="UGATIT">U-GAT-IT(light) landscape2cubism</option>
+    </select>
     <input class=form-control type=file name=file>
     <button type="submit" class="btn btn-primary mb-3">Transform image</button>
 </form>

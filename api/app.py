@@ -4,7 +4,8 @@ from flask import Flask, request, flash, redirect, url_for, render_template
 from werkzeug.utils import secure_filename
 
 from src.model_inference import run_one_image
-from config import ALLOWED_EXTENSIONS, UPLOAD_FOLDER, INFERENCE_RESULTS_FOLDER, MAX_CONTENT_LENGTH
+from config import ALLOWED_EXTENSIONS, UPLOAD_FOLDER, \
+    INFERENCE_RESULTS_FOLDER, MAX_CONTENT_LENGTH
 
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
@@ -19,6 +20,7 @@ def allowed_file(filename):
 @app.route('/', methods=['GET', 'POST'])
 def upload_file():
     if request.method == 'POST':
+        model_name = request.form.get('model_select')
         # check if the post request has the file part
         if 'file' not in request.files:
             flash('No file part')
@@ -33,17 +35,19 @@ def upload_file():
             filename = secure_filename(file.filename)
             file.save(os.path.join(UPLOAD_FOLDER, filename))
             return redirect(url_for('display_result',
-                                    filename=filename))
+                                    filename=filename,
+                                    model_name=model_name))
     return render_template('transform_image.html')
 
 
-@app.route('/display_result/<filename>')
-def display_result(filename):
+@app.route('/display_result')
+def display_result():
+    filename = request.args.get('filename')
+    model_name = request.args.get('model_name')
     run_one_image(
         os.path.join(UPLOAD_FOLDER, filename),
         os.path.join(INFERENCE_RESULTS_FOLDER, filename),
-        "../model/checkpoints/CycleGAN-apple2orange.pth.tar",
-        "mps"
+        model_name
     )
     return render_template('display_result.html', image_name=filename)
 

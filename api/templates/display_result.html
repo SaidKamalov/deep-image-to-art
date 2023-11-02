@@ -4,11 +4,12 @@
 <h1>Transform Results</h1>
 <div class="row">
     <div class="col-md-6">
-        <img src="{{ url_for('static', filename='uploads/' + image_name) }}" class="img-fluid" alt="Responsive image">
+        <img src="{{ url_for('static', filename='uploads/' + image_name) }}" class="img-fluid" alt="Responsive image"
+             width="512" height="512">
     </div>
     <div class="col-md-6">
         <img src="{{ url_for('static', filename='inference_results/' + image_name) }}" class="img-fluid"
-             alt="Responsive image">
+             alt="Responsive image" width="512" height="512">
     </div>
 </div>
 {% endblock %}
