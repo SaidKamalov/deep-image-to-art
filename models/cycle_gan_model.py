@@ -76,7 +76,7 @@ class CycleNet(nn.Module):
         return self.main(x)
 
     def transform_image(self, input_path, output_path):
-        image = img_pre.preprocess_one_image(input_path, True, False, self.device)
+        image = img_pre.preprocess_one_image_cv(input_path, True, False, self.device)
 
         with torch.no_grad():
             gen_image = self(image)
