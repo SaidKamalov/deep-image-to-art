@@ -5,17 +5,17 @@ MAX_CONTENT_LENGTH = 16 * 1024 * 1024
 
 DEVICE = "cpu"
 MODEL_PATHS = {
-    "CycleGAN": "../models/checkpoints/CycleGAN-apple2orange.pth.tar",
-    "UGATIT": "../models/checkpoints/UGATIT-light-landscape2cubism.pt"
+    "cyclegan": "models/checkpoints/CycleGAN-apple2orange.pth.tar",
+    "ugatit_light": "models/checkpoints/UGATIT-light-landscape2cubism.pt"
 }
 MODEL_CONFS = {
-    "CycleGAN": {
+    "cyclegan": {
         "in_channels": 3,
         "out_channels": 3,
         "channels": 64,
         "device": DEVICE
     },
-    "UGATIT": {
+    "ugatit_light": {
         'light': True,
         'ch': 64,
         'n_res': 4,

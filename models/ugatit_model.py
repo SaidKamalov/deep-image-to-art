@@ -50,24 +50,25 @@ class UGATIT(object):
         self.genB2A.load_state_dict(params['genB2A'])
 
     def transform_image(self, input_path, output_path):
-        real_A = preprocess_one_image_pil(input_path, self.img_size, self.device)
+        with torch.no_grad():
+            real_A = preprocess_one_image_pil(input_path, self.img_size, self.device)
 
-        fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
+            fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
 
-        fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
+            fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
 
-        fake_A2A, _, fake_A2A_heatmap = self.genB2A(real_A)
+            # fake_A2A, _, fake_A2A_heatmap = self.genB2A(real_A)
 
-        # A2B = np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
-        #                       cam(tensor2numpy(fake_A2A_heatmap[0]), self.img_size),
-        #                       RGB2BGR(tensor2numpy(denorm(fake_A2A[0]))),
-        #                       cam(tensor2numpy(fake_A2B_heatmap[0]), self.img_size),
-        #                       RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))),
-        #                       cam(tensor2numpy(fake_A2B2A_heatmap[0]), self.img_size),
-        #                       RGB2BGR(tensor2numpy(denorm(fake_A2B2A[0])))), 0)
-        A2B = RGB2BGR(tensor2numpy(denorm(fake_A2B2A[0])))
+            # A2B = np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
+            #                       cam(tensor2numpy(fake_A2A_heatmap[0]), self.img_size),
+            #                       RGB2BGR(tensor2numpy(denorm(fake_A2A[0]))),
+            #                       cam(tensor2numpy(fake_A2B_heatmap[0]), self.img_size),
+            #                       RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))),
+            #                       cam(tensor2numpy(fake_A2B2A_heatmap[0]), self.img_size),
+            #                       RGB2BGR(tensor2numpy(denorm(fake_A2B2A[0])))), 0)
+            A2B = RGB2BGR(tensor2numpy(denorm(fake_A2B2A[0])))
 
-        cv2.imwrite(output_path, A2B * 255.0)
+            cv2.imwrite(output_path, A2B * 255.0)
 
 
 class ResnetGenerator(nn.Module):

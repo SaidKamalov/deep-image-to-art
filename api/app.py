@@ -1,4 +1,7 @@
 import os
+import sys
+
+sys.path.append(os.getcwd())
 
 from flask import Flask, request, flash, redirect, url_for, render_template
 from werkzeug.utils import secure_filename
@@ -8,7 +11,9 @@ from config import ALLOWED_EXTENSIONS, UPLOAD_FOLDER, \
     INFERENCE_RESULTS_FOLDER, MAX_CONTENT_LENGTH
 
 app = Flask(__name__)
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.config["UPLOAD_FOLDER"] = os.path.abspath(os.path.join(os.path.dirname(__file__), UPLOAD_FOLDER))
+app.config["INFERENCE_RESULTS_FOLDER"] = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), INFERENCE_RESULTS_FOLDER))
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
 
@@ -33,7 +38,7 @@ def upload_file():
             return redirect(request.url)
         if file and allowed_file(file.filename):
             filename = secure_filename(file.filename)
-            file.save(os.path.join(UPLOAD_FOLDER, filename))
+            file.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
             return redirect(url_for('display_result',
                                     filename=filename,
                                     model_name=model_name))
@@ -45,8 +50,8 @@ def display_result():
     filename = request.args.get('filename')
     model_name = request.args.get('model_name')
     run_one_image(
-        os.path.join(UPLOAD_FOLDER, filename),
-        os.path.join(INFERENCE_RESULTS_FOLDER, filename),
+        os.path.join(app.config["UPLOAD_FOLDER"], filename),
+        os.path.join(app.config["INFERENCE_RESULTS_FOLDER"], filename),
         model_name
     )
     return render_template('display_result.html', image_name=filename)
