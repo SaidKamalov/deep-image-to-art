@@ -1,0 +1,17 @@
+adv_weight: 1
+batch_size: 1
+cam_weight: 1000
+ch: 64
+cycle_weight: 10
+decay_flag: true
+epochs: 100
+identity_weight: 10
+img_ch: 3
+img_size: 128
+light: true
+lr: 0.0001
+n_dis: 6
+n_res: 4
+print_freq: 1
+save_freq: 100000
+weight_decay: 0.0001

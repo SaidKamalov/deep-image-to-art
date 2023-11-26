@@ -1,5 +1,4 @@
 import itertools
-import os
 import cv2
 
 import torch
@@ -7,16 +6,16 @@ import torch.nn as nn
 from torch.nn.parameter import Parameter
 
 import numpy as np
-from utils.img_preprocessing import tensor2numpy, RGB2BGR, denorm, cam, preprocess_one_image_pil
+from utils.img_preprocessing import tensor2numpy, RGB2BGR, denorm, cam
 
 import pytorch_lightning as pl
 
 
 class UGATIT_Lightning(pl.LightningModule):
     def __init__(self, light=False, batch_size=1, print_freq=1000,
-                 save_freq=100000, decay_flag=True, lr=0.0001, weight_decay=0.0001,
+                 decay_flag=True, lr=0.0001, weight_decay=0.0001,
                  adv_weight=1, cycle_weight=10, identity_weight=10, cam_weight=1000,
-                 ch=64, n_res=4, n_dis=6, img_size=256, img_ch=3, epochs=100):
+                 ch=64, n_res=4, img_size=256, epochs=100):
         super(UGATIT_Lightning, self).__init__()
         self.save_hyperparameters()
 
@@ -211,10 +210,8 @@ class UGATIT_Lightning(pl.LightningModule):
                                                    cam(tensor2numpy(fake_B2A2B_heatmap[0]), self.hparams.img_size),
                                                    RGB2BGR(tensor2numpy(denorm(fake_B2A2B[0])))), 0)), 1)
 
-        cv2.imwrite('val_results/A2B_%07d.png' % batch_idx, A2B * 255.0)
-        cv2.imwrite('val_results/B2A_%07d.png' % batch_idx, B2A * 255.0)
-
-        self.log_dict({"val_loss": 0.}, prog_bar=True)
+        cv2.imwrite(f'val_results/A2B_epoch{self.current_epoch}_{batch_idx}.png', A2B * 255.0)
+        cv2.imwrite(f'val_results/B2A_epoch{self.current_epoch}_{batch_idx}.png', B2A * 255.0)
 
 
 class ResnetGenerator(nn.Module):
