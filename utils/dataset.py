@@ -86,11 +86,12 @@ class CustomDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         return DataLoader(
-            self.train, batch_size=self.train_batch_size, shuffle=self.shuffle
+            self.train, batch_size=self.train_batch_size, shuffle=self.shuffle,
+            num_workers=os.cpu_count()
         )
 
     def val_dataloader(self):
-        return DataLoader(self.val, batch_size=self.train_batch_size)
+        return DataLoader(self.val, batch_size=self.train_batch_size, num_workers=os.cpu_count())
 
     def test_dataloader(self):
         return DataLoader(self.test, batch_size=self.test_batch_size)
@@ -220,7 +221,7 @@ def read_image_to_np(image_file, width, height, resizing_method=Image.BILINEAR):
         .convert("RGB")
         .resize((width, height), resample=resizing_method)
     )
-    img = np.array(img)
+    # img = np.array(img)
     return img
 
 

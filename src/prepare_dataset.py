@@ -96,7 +96,7 @@ argparser.add_argument(
 
 
 def prepare_dataset(
-    dataset_name, path_to_set_A, path_to_set_B, shuffle=False, test_size=0.2, **kwargs
+        dataset_name, path_to_set_A=None, path_to_set_B=None, shuffle=False, test_size=0.2, **kwargs
 ):
     """Create CustomDataModule and save images properly in specific dataset directory if necessary.
 
