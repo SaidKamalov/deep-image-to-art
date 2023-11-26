@@ -11,6 +11,13 @@ from utils.dataset import CustomDataModule, split_and_save
 PROJECT_DIR = "/".join(__file__.split("/")[:-2])
 PATH_TO_DATASETS = os.path.join(PROJECT_DIR, "datasets/")
 
+DEFAULT_TRANSFORM = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    ]
+)
+
 argparser = argparse.ArgumentParser()
 argparser.add_argument(
     "--dataset_name",
@@ -108,7 +115,7 @@ def prepare_dataset(
 
     if not is_dataset_present(dataset_path):
         assert (
-                path_to_set_A and path_to_set_B
+            path_to_set_A and path_to_set_B
         ), "dataset does not exist, paths to set A and set B are necessary."
 
         split_and_save(path_to_set_A, path_to_set_B, dataset_path, test_size, shuffle)
@@ -119,11 +126,15 @@ def prepare_dataset(
     test_batch_size = kwargs.get("test_batch_size", 1)
     shuffle_dm = kwargs.get("shuffle_train", True)
     val_size = kwargs.get("val_size", 0.1)
+    train_transform = kwargs.get("train_transform", DEFAULT_TRANSFORM)
+    test_transform = kwargs.get("train_transform", DEFAULT_TRANSFORM)
 
     data_module = CustomDataModule(
         path_to_dataset=dataset_path,
         height=height,
         width=width,
+        train_transform=train_transform,
+        test_transform=test_transform,
         train_batch_size=train_batch_size,
         test_batch_size=test_batch_size,
         shuffle=shuffle_dm,
