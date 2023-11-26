@@ -18,16 +18,16 @@ class CustomDataModule(pl.LightningDataModule):
     """Custom implementation of LightningDataModule."""
 
     def __init__(
-        self,
-        path_to_dataset,
-        height,
-        width,
-        train_transform=transforms.ToTensor(),
-        test_transform=transforms.ToTensor(),
-        train_batch_size=1,
-        test_batch_size=1,
-        shuffle=False,
-        val_size=0.2,
+            self,
+            path_to_dataset,
+            height,
+            width,
+            train_transform=transforms.ToTensor(),
+            test_transform=transforms.ToTensor(),
+            train_batch_size=1,
+            test_batch_size=1,
+            shuffle=False,
+            val_size=0.2,
     ) -> None:
         """Constructor of CustomDataModule.
 
@@ -83,7 +83,6 @@ class CustomDataModule(pl.LightningDataModule):
 
         if stage == "test" or stage is None:
             self.test = self.test_dataset
-        pass
 
     def train_dataloader(self):
         return DataLoader(
@@ -98,7 +97,7 @@ class CustomDataModule(pl.LightningDataModule):
 
 
 class CustomDataset(Dataset):
-    """Custom implementtion of pytorch dataset."""
+    """Custom implementation of pytorch dataset."""
 
     def __init__(self, path_to_set_A, path_to_set_B, height, width, transform) -> None:
         """Constructor of CustomDataset.
@@ -127,14 +126,14 @@ class CustomDataset(Dataset):
             img_A = self.transform(img_A)
             img_B = self.transform(img_B)
 
-        return (img_A, img_B)
+        return img_A, img_B
 
     def __len__(self):
         return len(self.files_A)
 
 
 def split_and_save(
-    path_to_set_A, path_to_set_B, path_to_dataset, test_size=0.2, shuffle=True
+        path_to_set_A, path_to_set_B, path_to_dataset, test_size=0.2, shuffle=True
 ):
     """Take images from directories of set A and set B and split them into test and train directories.
 
@@ -194,7 +193,7 @@ def get_files(dir):
     """Get file names from directory.
 
     Args:
-        dir (str): path to drectory.
+        dir (str): path to directory.
 
     Returns:
         files (list[str]): list of file names.
@@ -219,7 +218,7 @@ def read_image_to_np(image_file, width, height, resizing_method=Image.BILINEAR):
     img = (
         Image.open(image_file)
         .convert("RGB")
-        .resize([width, height], resample=resizing_method)
+        .resize((width, height), resample=resizing_method)
     )
     img = np.array(img)
     return img
