@@ -6,13 +6,13 @@ sys.path.append(os.getcwd())
 
 import cv2
 
-from models import cycle_gan_model, ugatit_model_lightning
+from models import cycle_gan_model_lightning, ugatit_model_lightning
 from api.config import MODEL_PATHS
 from utils.dataset import read_image_to_np
 from prepare_dataset import DEFAULT_TRANSFORM
 
 models_dict = {
-    # 'cyclegan': cycle_gan_model.CycleNet,
+    'cyclegan': cycle_gan_model_lightning.CycleGAN_Lightning,
     'ugatit_light': ugatit_model_lightning.UGATIT_Lightning
 }
 

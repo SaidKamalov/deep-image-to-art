@@ -25,6 +25,18 @@ class CycleGAN_Lightning(pl.LightningModule):
 
         self.automatic_optimization = False
 
+    def forward(self, x):
+        return self.G_basestyle(x)
+
+    def transform_image(self, image_tensor):
+        self.eval()
+        with torch.no_grad():
+            out_image = self(image_tensor)
+
+        out_image = RGB2BGR(tensor2numpy(denorm(out_image[0]))) * 255.0
+
+        return out_image
+
     def configure_optimizers(self):
         self.g_basestyle_optimizer = torch.optim.Adam(self.G_basestyle.parameters(), lr=self.hparams.lr['G'],
                                                       betas=(0.5, 0.999))
