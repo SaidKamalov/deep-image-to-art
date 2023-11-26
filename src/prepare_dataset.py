@@ -59,14 +59,14 @@ argparser.add_argument(
     help="batch size for test dataloader",
 )
 argparser.add_argument(
-    "--suffle_dataset",
+    "--shuffle_dataset",
     type=bool,
     required=False,
     default=False,
     help="shuffle files before splitting",
 )
 argparser.add_argument(
-    "--suffle_train",
+    "--shuffle_train",
     type=bool,
     required=False,
     default=True,
@@ -89,7 +89,7 @@ argparser.add_argument(
 
 
 def prepare_dataset(
-    dataset_name, path_to_set_A, path_to_set_B, shuffle=False, test_size=0.2, **kwargs
+        dataset_name, path_to_set_A, path_to_set_B, shuffle=False, test_size=0.2, **kwargs
 ):
     """Create CustomDataModule and save images properly in specific dataset directory if necessary.
 
@@ -108,7 +108,7 @@ def prepare_dataset(
 
     if not is_dataset_present(dataset_path):
         assert (
-            path_to_set_A and path_to_set_B
+                path_to_set_A and path_to_set_B
         ), "dataset does not exist, paths to set A and set B are necessary."
 
         split_and_save(path_to_set_A, path_to_set_B, dataset_path, test_size, shuffle)
@@ -117,7 +117,7 @@ def prepare_dataset(
     width = kwargs.get("width", 128)
     train_batch_size = kwargs.get("train_batch_size", 16)
     test_batch_size = kwargs.get("test_batch_size", 1)
-    shuffle_dm = kwargs.get("suffle_train", True)
+    shuffle_dm = kwargs.get("shuffle_train", True)
     val_size = kwargs.get("val_size", 0.1)
 
     data_module = CustomDataModule(
@@ -160,23 +160,14 @@ if __name__ == "__main__":
         "width": args.width,
         "train_batch_size": args.train_batch_size,
         "test_batch_size": args.test_batch_size,
-        "suffle_train": args.suffle_train,
+        "shuffle_train": args.shuffle_train,
         "val_size": args.val_size,
     }
     dm = prepare_dataset(
         dataset_name=args.dataset_name,
         path_to_set_A=args.path_to_set_A,
         path_to_set_B=args.path_to_set_B,
-        shuffle=args.suffle_dataset,
+        shuffle=args.shuffle_dataset,
         test_size=args.test_size,
         kwargs=kwargs,
     )
-
-    # just for testing data module
-    dm.prepare_data()
-    dm.setup()
-    train_dataloader = dm.train_dataloader()
-    print(len(train_dataloader))
-    part_A, part_B = next(iter(train_dataloader))
-    print(f"part A batch shape: {part_A.size()}")
-    print(f"part B batch shape: {part_B.size()}")
