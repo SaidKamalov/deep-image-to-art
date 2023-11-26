@@ -210,8 +210,8 @@ class UGATIT_Lightning(pl.LightningModule):
                                                    cam(tensor2numpy(fake_B2A2B_heatmap[0]), self.hparams.img_size),
                                                    RGB2BGR(tensor2numpy(denorm(fake_B2A2B[0])))), 0)), 1)
 
-        cv2.imwrite(f'val_results/A2B_epoch{self.current_epoch}_{batch_idx}.png', A2B * 255.0)
-        cv2.imwrite(f'val_results/B2A_epoch{self.current_epoch}_{batch_idx}.png', B2A * 255.0)
+        cv2.imwrite(f'val_results/A2B/epoch{self.current_epoch}_{batch_idx}.png', A2B * 255.0)
+        cv2.imwrite(f'val_results/B2A/epoch{self.current_epoch}_{batch_idx}.png', B2A * 255.0)
 
 
 class ResnetGenerator(nn.Module):
