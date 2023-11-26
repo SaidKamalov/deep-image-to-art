@@ -9,7 +9,7 @@ import cv2
 from models import cycle_gan_model_lightning, ugatit_model_lightning
 from api.config import MODEL_PATHS
 from utils.dataset import read_image_to_np
-from prepare_dataset import DEFAULT_TRANSFORM
+from src.prepare_dataset import DEFAULT_TRANSFORM
 
 models_dict = {
     'cyclegan': cycle_gan_model_lightning.CycleGAN_Lightning,
