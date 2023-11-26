@@ -221,7 +221,7 @@ def read_image_to_np(image_file, width, height, resizing_method=Image.BILINEAR):
         .convert("RGB")
         .resize((width, height), resample=resizing_method)
     )
-    # img = np.array(img)
+    img = np.array(img)
     return img
 
 
