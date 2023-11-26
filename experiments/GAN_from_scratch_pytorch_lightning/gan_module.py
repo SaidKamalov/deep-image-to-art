@@ -1,11 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision
 
 import pytorch_lightning as pl
 
-from collections import OrderedDict
 from matplotlib import pyplot as plt
 
 
