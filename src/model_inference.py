@@ -31,7 +31,7 @@ def run_one_image(input_path, output_path, model_name, verbose=False):
     g_model = (
         models_dict[model_name]
         .load_from_checkpoint(os.path.join(project_dir,
-                                           MODEL_PATHS[model_name]))
+                                           MODEL_PATHS[model_name]), map_location='cpu')
     )
 
     print("Loading image...") if verbose else None
