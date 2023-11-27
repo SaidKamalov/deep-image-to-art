@@ -37,3 +37,4 @@ The available models are(case insensitive):
 
 - `CycleGAN` - simple CycleGAN model
 - `UGATIT_light` - light version of UGATIT model 
+- `CUT` - CUT model

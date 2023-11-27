@@ -6,14 +6,15 @@ sys.path.append(os.getcwd())
 
 import cv2
 
-from models import cycle_gan_model_lightning, ugatit_model_lightning
+from models import cycle_gan_model, ugatit_model, cut_model
 from api.config import MODEL_PATHS
 from utils.dataset import read_image_to_np
 from src.prepare_dataset import DEFAULT_TRANSFORM
 
 models_dict = {
-    'cyclegan': cycle_gan_model_lightning.CycleGAN_Lightning,
-    'ugatit_light': ugatit_model_lightning.UGATIT_Lightning
+    'cyclegan': cycle_gan_model.CycleGAN,
+    'ugatit_light': ugatit_model.UGATIT,
+    'cut': cut_model.CUT
 }
 
 argparser = argparse.ArgumentParser()

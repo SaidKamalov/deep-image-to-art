@@ -1,5 +1,4 @@
-import os
-from glob import glob
+import itertools
 import cv2
 
 import torch
@@ -7,68 +6,225 @@ import torch.nn as nn
 from torch.nn.parameter import Parameter
 
 import numpy as np
-from utils.img_preprocessing import tensor2numpy, RGB2BGR, denorm, cam, preprocess_one_image_pil
+from utils.img_preprocessing import tensor2numpy, RGB2BGR, denorm, cam
+
+import pytorch_lightning as pl
 
 
-class UGATIT(object):
-    def __init__(self, light, ch, n_res, img_size, device):
-        self.light = light
+class UGATIT(pl.LightningModule):
+    def __init__(self, light=False, batch_size=1, print_freq=1000,
+                 decay_flag=True, lr=0.0001, weight_decay=0.0001,
+                 adv_weight=1, cycle_weight=10, identity_weight=10, cam_weight=1000,
+                 ch=64, n_res=4, img_size=256, epochs=100):
+        super(UGATIT, self).__init__()
+        self.save_hyperparameters()
 
-        if self.light:
-            self.model_name = 'UGATIT_light'
-        else:
-            self.model_name = 'UGATIT'
+        # Generators and Discriminators
+        self.genA2B = ResnetGenerator(input_nc=3, output_nc=3, ngf=ch, n_blocks=n_res, img_size=img_size,
+                                      light=light)
+        self.genB2A = ResnetGenerator(input_nc=3, output_nc=3, ngf=ch, n_blocks=n_res, img_size=img_size,
+                                      light=light)
+        self.disGA = Discriminator(input_nc=3, ndf=ch, n_layers=7)
+        self.disGB = Discriminator(input_nc=3, ndf=ch, n_layers=7)
+        self.disLA = Discriminator(input_nc=3, ndf=ch, n_layers=5)
+        self.disLB = Discriminator(input_nc=3, ndf=ch, n_layers=5)
 
-        self.ch = ch
-        """ Generator """
-        self.n_res = n_res
+        self.Rho_clipper = RhoClipper(0, 1)
 
-        self.img_size = img_size
+        # Losses
+        self.L1_loss = nn.L1Loss()
+        self.MSE_loss = nn.MSELoss()
+        self.BCE_loss = nn.BCEWithLogitsLoss()
 
-        self.device = device
+        self.automatic_optimization = False
 
-        self.build_model()
+    def forward(self, x):
+        fake_A2B, _, fake_A2B_heatmap = self.genA2B(x)
 
-    ##################################################################################
-    # Model
-    ##################################################################################
+        fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
 
-    def build_model(self):
-        """ Define Generator """
-        self.genA2B = ResnetGenerator(input_nc=3, output_nc=3, ngf=self.ch, n_blocks=self.n_res, img_size=self.img_size,
-                                      light=self.light).to(self.device)
-        self.genB2A = ResnetGenerator(input_nc=3, output_nc=3, ngf=self.ch, n_blocks=self.n_res, img_size=self.img_size,
-                                      light=self.light).to(self.device)
+        return fake_A2B2A
 
-    def eval(self):
-        self.genB2A.eval()
-        self.genA2B.eval()
-
-    def load(self, checkpoint_path):
-        params = torch.load(checkpoint_path)
-        self.genA2B.load_state_dict(params['genA2B'])
-        self.genB2A.load_state_dict(params['genB2A'])
-
-    def transform_image(self, input_path, output_path):
+    def transform_image(self, image_tensor):
+        self.eval()
         with torch.no_grad():
-            real_A = preprocess_one_image_pil(input_path, self.img_size, self.device)
+            out_image = self(image_tensor)
 
-            fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
+        out_image = RGB2BGR(tensor2numpy(denorm(out_image[0]))) * 255.0
 
-            fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
+        return out_image
 
-            # fake_A2A, _, fake_A2A_heatmap = self.genB2A(real_A)
+    def configure_optimizers(self):
+        lr = self.hparams.lr
+        weight_decay = self.hparams.weight_decay
 
-            # A2B = np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
-            #                       cam(tensor2numpy(fake_A2A_heatmap[0]), self.img_size),
-            #                       RGB2BGR(tensor2numpy(denorm(fake_A2A[0]))),
-            #                       cam(tensor2numpy(fake_A2B_heatmap[0]), self.img_size),
-            #                       RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))),
-            #                       cam(tensor2numpy(fake_A2B2A_heatmap[0]), self.img_size),
-            #                       RGB2BGR(tensor2numpy(denorm(fake_A2B2A[0])))), 0)
-            A2B = RGB2BGR(tensor2numpy(denorm(fake_A2B2A[0])))
+        beta1 = 0.5
+        beta2 = 0.999
 
-            cv2.imwrite(output_path, A2B * 255.0)
+        g_optimizer = torch.optim.Adam(itertools.chain(self.genA2B.parameters(), self.genB2A.parameters()),
+                                       lr=lr, betas=(beta1, beta2), weight_decay=weight_decay)
+        d_optimizer = torch.optim.Adam(
+            itertools.chain(self.disGA.parameters(), self.disGB.parameters(), self.disLA.parameters(),
+                            self.disLB.parameters()),
+            lr=lr, betas=(beta1, beta2), weight_decay=weight_decay)
+
+        return [g_optimizer, d_optimizer], []
+
+    def training_step(self, batch, batch_idx):
+        real_A, real_B = batch
+
+        G_optim, D_optim = self.optimizers()
+
+        if self.hparams.decay_flag and self.current_epoch > (self.hparams.epochs // 2):
+            D_optim.param_groups[0]['lr'] -= (self.hparams.lr / (self.hparams.epochs // 2))
+            G_optim.param_groups[0]['lr'] -= (self.hparams.lr / (self.hparams.epochs // 2))
+
+        # Update D
+        D_optim.zero_grad()
+
+        fake_A2B, _, _ = self.genA2B(real_A)
+        fake_B2A, _, _ = self.genB2A(real_B)
+
+        real_GA_logit, real_GA_cam_logit, _ = self.disGA(real_A)
+        real_LA_logit, real_LA_cam_logit, _ = self.disLA(real_A)
+        real_GB_logit, real_GB_cam_logit, _ = self.disGB(real_B)
+        real_LB_logit, real_LB_cam_logit, _ = self.disLB(real_B)
+
+        fake_GA_logit, fake_GA_cam_logit, _ = self.disGA(fake_B2A)
+        fake_LA_logit, fake_LA_cam_logit, _ = self.disLA(fake_B2A)
+        fake_GB_logit, fake_GB_cam_logit, _ = self.disGB(fake_A2B)
+        fake_LB_logit, fake_LB_cam_logit, _ = self.disLB(fake_A2B)
+
+        D_ad_loss_GA = self.MSE_loss(real_GA_logit, torch.ones_like(real_GA_logit).to(self.device)) + self.MSE_loss(
+            fake_GA_logit, torch.zeros_like(fake_GA_logit).to(self.device))
+        D_ad_cam_loss_GA = self.MSE_loss(real_GA_cam_logit,
+                                         torch.ones_like(real_GA_cam_logit).to(self.device)) + self.MSE_loss(
+            fake_GA_cam_logit, torch.zeros_like(fake_GA_cam_logit).to(self.device))
+        D_ad_loss_LA = self.MSE_loss(real_LA_logit, torch.ones_like(real_LA_logit).to(self.device)) + self.MSE_loss(
+            fake_LA_logit, torch.zeros_like(fake_LA_logit).to(self.device))
+        D_ad_cam_loss_LA = self.MSE_loss(real_LA_cam_logit,
+                                         torch.ones_like(real_LA_cam_logit).to(self.device)) + self.MSE_loss(
+            fake_LA_cam_logit, torch.zeros_like(fake_LA_cam_logit).to(self.device))
+        D_ad_loss_GB = self.MSE_loss(real_GB_logit, torch.ones_like(real_GB_logit).to(self.device)) + self.MSE_loss(
+            fake_GB_logit, torch.zeros_like(fake_GB_logit).to(self.device))
+        D_ad_cam_loss_GB = self.MSE_loss(real_GB_cam_logit,
+                                         torch.ones_like(real_GB_cam_logit).to(self.device)) + self.MSE_loss(
+            fake_GB_cam_logit, torch.zeros_like(fake_GB_cam_logit).to(self.device))
+        D_ad_loss_LB = self.MSE_loss(real_LB_logit, torch.ones_like(real_LB_logit).to(self.device)) + self.MSE_loss(
+            fake_LB_logit, torch.zeros_like(fake_LB_logit).to(self.device))
+        D_ad_cam_loss_LB = self.MSE_loss(real_LB_cam_logit,
+                                         torch.ones_like(real_LB_cam_logit).to(self.device)) + self.MSE_loss(
+            fake_LB_cam_logit, torch.zeros_like(fake_LB_cam_logit).to(self.device))
+
+        D_loss_A = self.hparams.adv_weight * (D_ad_loss_GA + D_ad_cam_loss_GA + D_ad_loss_LA + D_ad_cam_loss_LA)
+        D_loss_B = self.hparams.adv_weight * (D_ad_loss_GB + D_ad_cam_loss_GB + D_ad_loss_LB + D_ad_cam_loss_LB)
+
+        Discriminator_loss = D_loss_A + D_loss_B
+        self.manual_backward(Discriminator_loss)
+        D_optim.step()
+
+        # Update G
+        G_optim.zero_grad()
+
+        fake_A2B, fake_A2B_cam_logit, _ = self.genA2B(real_A)
+        fake_B2A, fake_B2A_cam_logit, _ = self.genB2A(real_B)
+
+        fake_A2B2A, _, _ = self.genB2A(fake_A2B)
+        fake_B2A2B, _, _ = self.genA2B(fake_B2A)
+
+        fake_A2A, fake_A2A_cam_logit, _ = self.genB2A(real_A)
+        fake_B2B, fake_B2B_cam_logit, _ = self.genA2B(real_B)
+
+        fake_GA_logit, fake_GA_cam_logit, _ = self.disGA(fake_B2A)
+        fake_LA_logit, fake_LA_cam_logit, _ = self.disLA(fake_B2A)
+        fake_GB_logit, fake_GB_cam_logit, _ = self.disGB(fake_A2B)
+        fake_LB_logit, fake_LB_cam_logit, _ = self.disLB(fake_A2B)
+
+        G_ad_loss_GA = self.MSE_loss(fake_GA_logit, torch.ones_like(fake_GA_logit).to(self.device))
+        G_ad_cam_loss_GA = self.MSE_loss(fake_GA_cam_logit, torch.ones_like(fake_GA_cam_logit).to(self.device))
+        G_ad_loss_LA = self.MSE_loss(fake_LA_logit, torch.ones_like(fake_LA_logit).to(self.device))
+        G_ad_cam_loss_LA = self.MSE_loss(fake_LA_cam_logit, torch.ones_like(fake_LA_cam_logit).to(self.device))
+        G_ad_loss_GB = self.MSE_loss(fake_GB_logit, torch.ones_like(fake_GB_logit).to(self.device))
+        G_ad_cam_loss_GB = self.MSE_loss(fake_GB_cam_logit, torch.ones_like(fake_GB_cam_logit).to(self.device))
+        G_ad_loss_LB = self.MSE_loss(fake_LB_logit, torch.ones_like(fake_LB_logit).to(self.device))
+        G_ad_cam_loss_LB = self.MSE_loss(fake_LB_cam_logit, torch.ones_like(fake_LB_cam_logit).to(self.device))
+
+        G_recon_loss_A = self.L1_loss(fake_A2B2A, real_A)
+        G_recon_loss_B = self.L1_loss(fake_B2A2B, real_B)
+
+        G_identity_loss_A = self.L1_loss(fake_A2A, real_A)
+        G_identity_loss_B = self.L1_loss(fake_B2B, real_B)
+
+        G_cam_loss_A = self.BCE_loss(fake_B2A_cam_logit,
+                                     torch.ones_like(fake_B2A_cam_logit).to(self.device)) + self.BCE_loss(
+            fake_A2A_cam_logit, torch.zeros_like(fake_A2A_cam_logit).to(self.device))
+        G_cam_loss_B = self.BCE_loss(fake_A2B_cam_logit,
+                                     torch.ones_like(fake_A2B_cam_logit).to(self.device)) + self.BCE_loss(
+            fake_B2B_cam_logit, torch.zeros_like(fake_B2B_cam_logit).to(self.device))
+
+        G_loss_A = (
+                self.hparams.adv_weight * (
+                G_ad_loss_GA + G_ad_cam_loss_GA +
+                G_ad_loss_LA + G_ad_cam_loss_LA) +
+                self.hparams.cycle_weight * G_recon_loss_A +
+                self.hparams.identity_weight * G_identity_loss_A +
+                self.hparams.cam_weight * G_cam_loss_A
+        )
+        G_loss_B = (
+                self.hparams.adv_weight * (
+                G_ad_loss_GB + G_ad_cam_loss_GB +
+                G_ad_loss_LB + G_ad_cam_loss_LB) +
+                self.hparams.cycle_weight * G_recon_loss_B +
+                self.hparams.identity_weight * G_identity_loss_B +
+                self.hparams.cam_weight * G_cam_loss_B)
+
+        Generator_loss = G_loss_A + G_loss_B
+        self.manual_backward(Generator_loss)
+        G_optim.step()
+
+        # clip parameter of AdaILN and ILN, applied after optimizer step
+        self.genA2B.apply(self.Rho_clipper)
+        self.genB2A.apply(self.Rho_clipper)
+
+        tqdm_dict = {"D_loss": Discriminator_loss, "G_loss": Generator_loss}
+        self.log_dict(tqdm_dict, prog_bar=True)
+
+    def validation_step(self, batch, batch_idx):
+        if self.current_epoch % self.hparams.print_freq != 0:
+            return
+
+        real_A, real_B = batch
+
+        fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
+        fake_B2A, _, fake_B2A_heatmap = self.genB2A(real_B)
+
+        fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
+        fake_B2A2B, _, fake_B2A2B_heatmap = self.genA2B(fake_B2A)
+
+        fake_A2A, _, fake_A2A_heatmap = self.genB2A(real_A)
+        fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
+
+        A2B = np.zeros((self.hparams.img_size * 7, 0, 3))
+        B2A = np.zeros((self.hparams.img_size * 7, 0, 3))
+
+        A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
+                                                   cam(tensor2numpy(fake_A2A_heatmap[0]), self.hparams.img_size),
+                                                   RGB2BGR(tensor2numpy(denorm(fake_A2A[0]))),
+                                                   cam(tensor2numpy(fake_A2B_heatmap[0]), self.hparams.img_size),
+                                                   RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))),
+                                                   cam(tensor2numpy(fake_A2B2A_heatmap[0]), self.hparams.img_size),
+                                                   RGB2BGR(tensor2numpy(denorm(fake_A2B2A[0])))), 0)), 1)
+
+        B2A = np.concatenate((B2A, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
+                                                   cam(tensor2numpy(fake_B2B_heatmap[0]), self.hparams.img_size),
+                                                   RGB2BGR(tensor2numpy(denorm(fake_B2B[0]))),
+                                                   cam(tensor2numpy(fake_B2A_heatmap[0]), self.hparams.img_size),
+                                                   RGB2BGR(tensor2numpy(denorm(fake_B2A[0]))),
+                                                   cam(tensor2numpy(fake_B2A2B_heatmap[0]), self.hparams.img_size),
+                                                   RGB2BGR(tensor2numpy(denorm(fake_B2A2B[0])))), 0)), 1)
+
+        cv2.imwrite(f'val_results/A2B/epoch{self.current_epoch}_{batch_idx}.png', A2B * 255.0)
+        cv2.imwrite(f'val_results/B2A/epoch{self.current_epoch}_{batch_idx}.png', B2A * 255.0)
 
 
 class ResnetGenerator(nn.Module):
@@ -320,3 +476,16 @@ class Discriminator(nn.Module):
         out = self.conv(x)
 
         return out, cam_logit, heatmap
+
+
+class RhoClipper:
+    def __init__(self, min, max):
+        self.clip_min = min
+        self.clip_max = max
+        assert min < max
+
+    def __call__(self, module):
+        if hasattr(module, 'rho'):
+            w = module.rho.data
+            w = w.clamp(self.clip_min, self.clip_max)
+            module.rho.data = w

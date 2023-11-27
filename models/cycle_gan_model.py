@@ -1,143 +1,228 @@
 import torch
-from torch import nn, Tensor
-from torchvision.utils import save_image
-from utils import img_preprocessing as img_pre
-from utils import load_model
+from torch import nn
+import pytorch_lightning as pl
+import cv2
+import numpy as np
 
-__all__ = [
-    "PathDiscriminator", "CycleNet",
-]
+from utils.img_preprocessing import RGB2BGR, tensor2numpy, denorm
 
 
-class CycleNet(nn.Module):
-    def __init__(
-            self,
-            in_channels: int,
-            out_channels: int,
-            channels: int,
-            device: str,
-    ) -> None:
-        super(CycleNet, self).__init__()
-        self.main = nn.Sequential(
-            # Initial convolution block
-            nn.ReflectionPad2d(3),
-            nn.Conv2d(in_channels, channels, (7, 7), (1, 1), (0, 0)),
-            nn.InstanceNorm2d(channels, track_running_stats=True),
-            nn.ReLU(True),
+class CycleGAN(pl.LightningModule):
+    def __init__(self, lr, reconstr_w=10, id_w=2, print_freq=1000, img_size=256):
+        super(CycleGAN, self).__init__()
+        self.save_hyperparameters()
 
-            # Downsampling
-            nn.Conv2d(channels, int(channels * 2), (3, 3), (2, 2), (1, 1)),
-            nn.InstanceNorm2d(int(channels * 2), track_running_stats=True),
-            nn.ReLU(True),
-            nn.Conv2d(int(channels * 2), int(channels * 4), (3, 3), (2, 2), (1, 1)),
-            nn.InstanceNorm2d(int(channels * 4), track_running_stats=True),
-            nn.ReLU(True),
+        # Models
+        self.G_basestyle = Generator()
+        self.G_stylebase = Generator()
+        self.D_base = Discriminator()
+        self.D_style = Discriminator()
 
-            # Residual blocks
-            _ResidualBlock(int(channels * 4)),
-            _ResidualBlock(int(channels * 4)),
-            _ResidualBlock(int(channels * 4)),
-            _ResidualBlock(int(channels * 4)),
-            _ResidualBlock(int(channels * 4)),
-            _ResidualBlock(int(channels * 4)),
-            _ResidualBlock(int(channels * 4)),
-            _ResidualBlock(int(channels * 4)),
-            _ResidualBlock(int(channels * 4)),
+        # Losses
+        self.mae = nn.L1Loss()
+        self.generator_loss = nn.MSELoss()
+        self.discriminator_loss = nn.MSELoss()
 
-            # Upsampling
-            nn.ConvTranspose2d(int(channels * 4), int(channels * 2), (3, 3), (2, 2), (1, 1), (1, 1)),
-            nn.InstanceNorm2d(int(channels * 2), track_running_stats=True),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(int(channels * 2), channels, (3, 3), (2, 2), (1, 1), (1, 1)),
-            nn.InstanceNorm2d(channels, track_running_stats=True),
-            nn.ReLU(True),
+        self.automatic_optimization = False
 
-            # Output layer
-            nn.ReflectionPad2d(3),
-            nn.Conv2d(channels, out_channels, (7, 7), (1, 1), (0, 0)),
-            nn.Tanh(),
-        )
+    def forward(self, x):
+        return self.G_basestyle(x)
 
-        self.device = device
-
-        self.init_weights()
-
-    def init_weights(self):
-        classname = self.__class__.__name__
-        if classname.find("Conv") != -1:
-            torch.nn.init.normal_(self.weight, 0.0, 0.02)
-        elif classname.find("BatchNorm") != -1:
-            torch.nn.init.normal_(self.weight, 1.0, 0.02)
-            torch.nn.init.zeros_(self.bias)
-
-        self.to(self.device)
-
-    def forward(self, x: Tensor) -> Tensor:
-        return self.main(x)
-
-    def transform_image(self, input_path, output_path):
-        image = img_pre.preprocess_one_image_cv(input_path, True, False, self.device)
-
+    def transform_image(self, image_tensor):
+        self.eval()
         with torch.no_grad():
-            gen_image = self(image)
-            save_image(gen_image.detach(), output_path, normalize=True)
+            out_image = self(image_tensor)
 
-    def load(self, checkpoint_path):
-        load_model.load_pretrained_state_dict(self, False, checkpoint_path)
+        out_image = RGB2BGR(tensor2numpy(denorm(out_image[0]))) * 255.0
+
+        return out_image
+
+    def configure_optimizers(self):
+        self.g_basestyle_optimizer = torch.optim.Adam(self.G_basestyle.parameters(), lr=self.hparams.lr['G'],
+                                                      betas=(0.5, 0.999))
+        self.g_stylebase_optimizer = torch.optim.Adam(self.G_stylebase.parameters(), lr=self.hparams.lr['G'],
+                                                      betas=(0.5, 0.999))
+        self.d_base_optimizer = torch.optim.Adam(self.D_base.parameters(), lr=self.hparams.lr['D'], betas=(0.5, 0.999))
+        self.d_style_optimizer = torch.optim.Adam(self.D_style.parameters(), lr=self.hparams.lr['D'],
+                                                  betas=(0.5, 0.999))
+
+        return [self.g_basestyle_optimizer, self.g_stylebase_optimizer, self.d_base_optimizer,
+                self.d_style_optimizer], []
+
+    def training_step(self, batch, batch_idx):
+        g_basestyle_optimizer, g_stylebase_optimizer, d_base_optimizer, d_style_optimizer = self.optimizers()
+
+        base_img, style_img = batch
+        b = base_img.size()[0]
+
+        valid = torch.ones(b, 1, 30, 30).to(self.device)
+        fake = torch.zeros(b, 1, 30, 30).to(self.device)
+
+        # Train Generator
+        # Validity
+        # MSELoss
+        val_base = self.generator_loss(self.D_base(self.G_stylebase(style_img)), valid)
+        val_style = self.generator_loss(self.D_style(self.G_basestyle(base_img)), valid)
+        val_loss = (val_base + val_style) / 2
+
+        # Reconstruction
+        reconstr_base = self.mae(self.G_stylebase(self.G_basestyle(base_img)), base_img)
+        reconstr_style = self.mae(self.G_basestyle(self.G_stylebase(style_img)), style_img)
+        reconstr_loss = (reconstr_base + reconstr_style) / 2
+
+        # Identity
+        id_base = self.mae(self.G_stylebase(base_img), base_img)
+        id_style = self.mae(self.G_basestyle(style_img), style_img)
+        id_loss = (id_base + id_style) / 2
+
+        # Loss Weight
+        G_loss = val_loss + self.hparams.reconstr_w * reconstr_loss + self.hparams.id_w * id_loss
+
+        g_basestyle_optimizer.zero_grad()
+        g_stylebase_optimizer.zero_grad()
+        self.manual_backward(G_loss)
+        g_basestyle_optimizer.step()
+        g_stylebase_optimizer.step()
+
+        # Train Discriminator
+        # MSELoss
+        D_base_gen_loss = self.discriminator_loss(self.D_base(self.G_stylebase(style_img)), fake)
+        D_style_gen_loss = self.discriminator_loss(self.D_style(self.G_basestyle(base_img)), fake)
+        D_base_valid_loss = self.discriminator_loss(self.D_base(base_img), valid)
+        D_style_valid_loss = self.discriminator_loss(self.D_style(style_img), valid)
+
+        D_gen_loss = (D_base_gen_loss + D_style_gen_loss) / 2
+
+        # Loss Weight
+        D_loss = (D_gen_loss + D_base_valid_loss + D_style_valid_loss) / 3
+
+        d_base_optimizer.zero_grad()
+        d_style_optimizer.zero_grad()
+        self.manual_backward(D_loss)
+        d_base_optimizer.step()
+        d_style_optimizer.step()
+
+        tqdm_dict = {'G_loss': G_loss, 'D_loss': D_loss}
+        self.log_dict(tqdm_dict, prog_bar=True)
+
+    def validation_step(self, batch, batch_idx):
+        if self.current_epoch % self.hparams.print_freq != 0:
+            return
+
+        base_img, style_img = batch
+
+        fake_A2B = self.G_basestyle(base_img)
+        fake_B2A = self.G_stylebase(style_img)
+
+        A2B = np.zeros((self.hparams.img_size * 2, 0, 3))
+        B2A = np.zeros((self.hparams.img_size * 2, 0, 3))
+
+        A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(base_img[0]))),
+                                                   RGB2BGR(tensor2numpy(denorm(fake_A2B[0])))), 0)), 1)
+
+        B2A = np.concatenate((B2A, np.concatenate((RGB2BGR(tensor2numpy(denorm(style_img[0]))),
+                                                   RGB2BGR(tensor2numpy(denorm(fake_B2A[0])))), 0)), 1)
+
+        cv2.imwrite(f'val_results/A2B/epoch{self.current_epoch}_{batch_idx}.png', A2B * 255.0)
+        cv2.imwrite(f'val_results/B2A/epoch{self.current_epoch}_{batch_idx}.png', B2A * 255.0)
 
 
-class _ResidualBlock(nn.Module):
-    def __init__(self, channels: int):
-        super(_ResidualBlock, self).__init__()
+class Discriminator(nn.Module):
+    def __init__(self, filter=64):
+        super(Discriminator, self).__init__()
 
-        self.res = nn.Sequential(
-            nn.ReflectionPad2d(1),
-            nn.Conv2d(channels, channels, (3, 3), (1, 1), (0, 0)),
-            nn.InstanceNorm2d(channels, track_running_stats=True),
-            nn.ReLU(True),
-            nn.ReflectionPad2d(1),
-            nn.Conv2d(channels, channels, (3, 3), (1, 1), (0, 0)),
-            nn.InstanceNorm2d(channels, track_running_stats=True),
+        self.block = nn.Sequential(
+            Downsample(3, filter, kernel_size=4, stride=2, apply_instancenorm=False),
+            Downsample(filter, filter * 2, kernel_size=4, stride=2),
+            Downsample(filter * 2, filter * 4, kernel_size=4, stride=2),
+            Downsample(filter * 4, filter * 8, kernel_size=4, stride=1),
         )
 
-    def forward(self, x: Tensor) -> Tensor:
-        identity = x
+        self.last = nn.Conv2d(filter * 8, 1, kernel_size=4, stride=1, padding=1)
 
-        x = self.res(x)
-
-        x = torch.add(x, identity)
+    def forward(self, x):
+        x = self.block(x)
+        x = self.last(x)
 
         return x
 
 
-class PathDiscriminator(nn.Module):
-    def __init__(
-            self,
-            in_channels: int,
-            out_channels: int,
-            channels: int,
-    ) -> None:
-        super(PathDiscriminator, self).__init__()
-        self.main = nn.Sequential(
-            nn.Conv2d(in_channels, channels, (4, 4), (2, 2), (1, 1)),
-            nn.LeakyReLU(0.2, True),
+class Generator(nn.Module):
+    def __init__(self, filter=64):
+        super(Generator, self).__init__()
+        self.downsamples = nn.ModuleList([
+            Downsample(3, filter, kernel_size=4, apply_instancenorm=False),  # (b, filter, 128, 128)
+            Downsample(filter, filter * 2),  # (b, filter * 2, 64, 64)
+            Downsample(filter * 2, filter * 4),  # (b, filter * 4, 32, 32)
+            Downsample(filter * 4, filter * 8),  # (b, filter * 8, 16, 16)
+            Downsample(filter * 8, filter * 8),  # (b, filter * 8, 8, 8)
+            Downsample(filter * 8, filter * 8),  # (b, filter * 8, 4, 4)
+            Downsample(filter * 8, filter * 8),  # (b, filter * 8, 2, 2)
+        ])
 
-            nn.Conv2d(channels, int(channels * 2), (4, 4), (2, 2), (1, 1)),
-            nn.InstanceNorm2d(int(channels * 2)),
-            nn.LeakyReLU(0.2, True),
+        self.upsamples = nn.ModuleList([
+            Upsample(filter * 8, filter * 8),
+            Upsample(filter * 16, filter * 8),
+            Upsample(filter * 16, filter * 8),
+            Upsample(filter * 16, filter * 4, dropout=False),
+            Upsample(filter * 8, filter * 2, dropout=False),
+            Upsample(filter * 4, filter, dropout=False)
+        ])
 
-            nn.Conv2d(int(channels * 2), int(channels * 4), (4, 4), (2, 2), (1, 1)),
-            nn.InstanceNorm2d(int(channels * 4)),
-            nn.LeakyReLU(0.2, True),
-
-            nn.Conv2d(int(channels * 4), int(channels * 8), (4, 4), (1, 1), (1, 1)),
-            nn.InstanceNorm2d(int(channels * 8)),
-            nn.LeakyReLU(0.2, True),
-
-            nn.Conv2d(int(channels * 8), out_channels, (4, 4), (1, 1), (1, 1)),
+        self.last = nn.Sequential(
+            nn.ConvTranspose2d(filter * 2, 3, kernel_size=4, stride=2, padding=1),
+            nn.Tanh()
         )
 
-    def forward(self, x: Tensor) -> Tensor:
-        x = self.main(x)
+    def forward(self, x):
+        skips = []
+        for l in self.downsamples:
+            x = l(x)
+            skips.append(x)
+
+        skips = reversed(skips[:-1])
+        for l, s in zip(self.upsamples, skips):
+            x = l(x, s)
+
+        out = self.last(x)
+
+        return out
+
+
+class Upsample(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=4, stride=2, padding=1, dropout=True):
+        super(Upsample, self).__init__()
+        self.dropout = dropout
+        self.block = nn.Sequential(
+            nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride, padding, bias=nn.InstanceNorm2d),
+            nn.InstanceNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+        self.dropout_layer = nn.Dropout2d(0.5)
+
+    def forward(self, x, shortcut=None):
+        x = self.block(x)
+        if self.dropout:
+            x = self.dropout_layer(x)
+
+        if shortcut is not None:
+            x = torch.cat([x, shortcut], dim=1)
+
+        return x
+
+
+class Downsample(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=4, stride=2, padding=1, apply_instancenorm=True):
+        super(Downsample, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=nn.InstanceNorm2d)
+        self.norm = nn.InstanceNorm2d(out_channels)
+        self.relu = nn.LeakyReLU(0.2, inplace=True)
+        self.apply_norm = apply_instancenorm
+
+    def forward(self, x):
+        x = self.conv(x)
+        if self.apply_norm:
+            x = self.norm(x)
+        x = self.relu(x)
 
         return x
