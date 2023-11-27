@@ -39,7 +39,20 @@ class UGATIT_Lightning(pl.LightningModule):
         self.automatic_optimization = False
 
     def forward(self, x):
-        return self.genA2B(x)
+        fake_A2B, _, fake_A2B_heatmap = self.genA2B(x)
+
+        fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
+
+        return fake_A2B2A
+
+    def transform_image(self, image_tensor):
+        self.eval()
+        with torch.no_grad():
+            out_image = self(image_tensor)
+
+        out_image = RGB2BGR(tensor2numpy(denorm(out_image[0]))) * 255.0
+
+        return out_image
 
     def configure_optimizers(self):
         lr = self.hparams.lr
