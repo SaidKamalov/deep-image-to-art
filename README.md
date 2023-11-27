@@ -35,5 +35,5 @@ $ python src/inference.py --model_name <model_name_from_available> --input_path 
 
 The available models are(case insensitive):
 
-- `CycleGAN` - transforms apples to oranges
-- `UGATIT_light` - light version of UGATIT, transforms landscapes to cubism paintings
+- `CycleGAN` - simple CycleGAN model
+- `UGATIT_light` - light version of UGATIT model 
