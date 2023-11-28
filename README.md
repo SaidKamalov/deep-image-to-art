@@ -49,3 +49,23 @@ $ python src/prepare_dataset.py --dataset_name <dataset_name> --path_to_set_A <p
 The dataset will be save in `datasets` folder by default.
 
 More parameters can be found by calling --help flag.
+
+## How to train the model
+
+For training the model you need to write only several lines of code:
+
+Example of CycleGAN training:
+```python
+from models.CycleGAN import CycleGAN
+from src.prepare_dataset import prepare_dataset
+import pytorch_lightning as pl
+
+dm = prepare_dataset(dataset_name="my_dataset")
+model = CycleGAN()
+
+trainer = pl.Trainer(accelerator="gpu", devices=1, max_epochs=100)
+
+trainer.fit(model, dm)
+```
+
+This is it! The model will be trained and results are saved in `lightning_logs` folder.
