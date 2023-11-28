@@ -56,7 +56,7 @@ For training the model you need to write only several lines of code:
 
 Example of CycleGAN training:
 ```python
-from models.CycleGAN import CycleGAN
+from models.cycle_gan_model import CycleGAN
 from src.prepare_dataset import prepare_dataset
 import pytorch_lightning as pl
 
