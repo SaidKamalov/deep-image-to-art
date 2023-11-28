@@ -118,7 +118,7 @@ class CustomDataset(Dataset):
         self.transform = transform
 
     def __getitem__(self, index):
-        img_file_A, img_file_B = self.files_A[index], self.files_B[index]
+        img_file_A, img_file_B = self.files_A[index], self.files_B[np.random.choice(len(self.files_B))]
 
         img_A = read_image_to_np(img_file_A, self.width, self.height)
         img_B = read_image_to_np(img_file_B, self.width, self.height)

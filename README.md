@@ -36,5 +36,17 @@ $ python src/inference.py --model_name <model_name_from_available> --input_path 
 The available models are(case insensitive):
 
 - `CycleGAN` - simple CycleGAN model
-- `UGATIT_light` - light version of UGATIT model 
+- `UGATIT_light` - light version of UGATIT model
 - `CUT` - CUT model
+
+## How to create your own dataset
+
+From the project root directory run the following command:
+
+```bash
+$ python src/prepare_dataset.py --dataset_name <dataset_name> --path_to_set_A <path_to_set_A> --path_to_set_B <path_to_set_B>
+```
+
+The dataset will be save in `datasets` folder by default.
+
+More parameters can be found by calling --help flag.
